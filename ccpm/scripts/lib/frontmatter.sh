@@ -110,3 +110,137 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     echo "  validate_frontmatter <file>"
     echo "  create_with_frontmatter <file> <frontmatter> <body>"
 fi
+
+# ============================================================================
+# Optimistic Locking with Version Control (Task #4)
+# ============================================================================
+
+# Add version field to frontmatter if not present
+# Usage: ensure_version <file_path>
+ensure_version() {
+    local file="$1"
+    
+    [ -f "$file" ] || {
+        echo "❌ File not found: $file" >&2
+        return 1
+    }
+    
+    # Check if version field exists
+    if ! grep -q "^version:" "$file"; then
+        # Add version: 1 after the opening ---
+        sed -i '1 a version: 1' "$file"
+    fi
+}
+
+# Get version from frontmatter
+# Usage: get_version <file_path>
+get_version() {
+    local file="$1"
+    get_frontmatter_field "$file" "version" || echo "0"
+}
+
+# Validate and update with optimistic locking
+# Usage: optimistic_update <file_path> <expected_version> <update_function>
+optimistic_update() {
+    local file="$1"
+    local expected_version="$2"
+    local update_func="$3"
+    
+    [ -f "$file" ] || {
+        echo "❌ File not found: $file" >&2
+        return 1
+    }
+    
+    # Source atomic operations
+    source "$(dirname "${BASH_SOURCE[0]}")/atomic-ops.sh"
+    
+    # Get current version
+    local current_version=$(get_version "$file")
+    
+    # Validate version
+    if [ "$current_version" != "$expected_version" ]; then
+        echo "❌ Version conflict detected!" >&2
+        echo "   Expected version: $expected_version" >&2
+        echo "   Current version:  $current_version" >&2
+        echo "   File: $file" >&2
+        echo "   Another process has modified this file." >&2
+        return 1
+    fi
+    
+    # Increment version
+    local new_version=$((current_version + 1))
+    
+    # Define wrapper that applies update and increments version
+    update_with_version() {
+        local temp_file="$1"
+        
+        # Apply user's update
+        $update_func "$temp_file" || return 1
+        
+        # Increment version
+        sed -i "/^version:/c\\version: $new_version" "$temp_file"
+    }
+    
+    # Use atomic update
+    atomic_update "$file" update_with_version
+}
+
+# Atomic update frontmatter with optimistic locking
+# Usage: optimistic_update_frontmatter <file_path> <key> <value>
+optimistic_update_frontmatter() {
+    local file="$1"
+    local key="$2"
+    local value="$3"
+    
+    [ -f "$file" ] || {
+        echo "❌ File not found: $file" >&2
+        return 1
+    }
+    
+    # Source atomic operations
+    source "$(dirname "${BASH_SOURCE[0]}")/atomic-ops.sh"
+    
+    # Get current version
+    local current_version=$(get_version "$file")
+    local new_version=$((current_version + 1))
+    
+    # Define update function
+    update_field_and_version() {
+        local temp_file="$1"
+        
+        # Update the field
+        sed -i "/^${key}:/c\\${key}: ${value}" "$temp_file"
+        
+        # Increment version
+        sed -i "/^version:/c\\version: $new_version" "$temp_file"
+    }
+    
+    # Use atomic update
+    atomic_update "$file" update_field_and_version
+}
+
+# Retry wrapper for optimistic updates
+# Usage: retry_optimistic_update <max_retries> <file> <update_function>
+retry_optimistic_update() {
+    local max_retries="$1"
+    local file="$2"
+    local update_func="$3"
+    local attempt=0
+    
+    while [ $attempt -lt $max_retries ]; do
+        # Get current version
+        local version=$(get_version "$file")
+        
+        # Try update
+        if optimistic_update "$file" "$version" "$update_func"; then
+            return 0
+        fi
+        
+        ((attempt++))
+        echo "⚠️ Retry attempt $attempt of $max_retries..." >&2
+        sleep $((RANDOM % 3 + 1))  # Random backoff 1-3 seconds
+    done
+    
+    echo "❌ Failed after $max_retries attempts" >&2
+    return 1
+}
