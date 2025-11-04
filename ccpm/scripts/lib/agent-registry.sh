@@ -225,3 +225,202 @@ check_dependencies() {
     fi
     return 0
 }
+
+# ============================================================================
+# Work Stream Ownership Tracking (Task #7)
+# ============================================================================
+
+# Claim a work stream
+# Usage: claim_work_stream <epic_name> <agent_id> <stream_name> <files_pattern>
+claim_work_stream() {
+    local epic_name="$1"
+    local agent_id="$2"
+    local stream_name="$3"
+    local files="$4"
+    local registry_file=".claude/epics/${epic_name}/agents.json"
+    local timestamp=$(get_timestamp)
+    
+    if [ ! -f "$registry_file" ]; then
+        echo "❌ Registry not found: $registry_file" >&2
+        return 1
+    fi
+    
+    if command -v jq &> /dev/null; then
+        # Check if stream already claimed
+        local current_owner=$(jq -r --arg stream "$stream_name" \
+            '.coordination.work_streams[$stream] // empty | .owner' "$registry_file" 2>/dev/null)
+        
+        if [ -n "$current_owner" ] && [ "$current_owner" != "$agent_id" ]; then
+            echo "❌ Work stream '$stream_name' already claimed by $current_owner" >&2
+            return 1
+        fi
+        
+        # Check for file conflicts
+        if check_file_conflicts "$epic_name" "$files" "$stream_name"; then
+            echo "❌ File conflicts detected" >&2
+            return 1
+        fi
+        
+        # Claim the stream
+        local temp_file=$(mktemp)
+        jq --arg stream "$stream_name" \
+           --arg agent "$agent_id" \
+           --arg files_str "$files" \
+           --arg started "$timestamp" \
+           '.coordination.work_streams[$stream] = {
+               "owner": $agent,
+               "status": "in-progress",
+               "files": ($files_str | split(",")),
+               "started": $started
+           }' "$registry_file" > "$temp_file"
+        mv "$temp_file" "$registry_file"
+        
+        echo "✓ Claimed work stream: $stream_name"
+    fi
+}
+
+# Release a work stream
+# Usage: release_work_stream <epic_name> <agent_id> <stream_name>
+release_work_stream() {
+    local epic_name="$1"
+    local agent_id="$2"
+    local stream_name="$3"
+    local registry_file=".claude/epics/${epic_name}/agents.json"
+    
+    if [ ! -f "$registry_file" ]; then
+        return 0
+    fi
+    
+    if command -v jq &> /dev/null; then
+        # Verify ownership before releasing
+        local owner=$(jq -r --arg stream "$stream_name" \
+            '.coordination.work_streams[$stream].owner' "$registry_file" 2>/dev/null)
+        
+        if [ "$owner" != "$agent_id" ]; then
+            echo "⚠️ Cannot release stream owned by $owner" >&2
+            return 1
+        fi
+        
+        local temp_file=$(mktemp)
+        jq --arg stream "$stream_name" \
+           'del(.coordination.work_streams[$stream])' "$registry_file" > "$temp_file"
+        mv "$temp_file" "$registry_file"
+    fi
+}
+
+# Check for file conflicts between work streams
+# Usage: check_file_conflicts <epic_name> <new_files> [exclude_stream]
+check_file_conflicts() {
+    local epic_name="$1"
+    local new_files="$2"
+    local exclude_stream="${3:-}"
+    local registry_file=".claude/epics/${epic_name}/agents.json"
+    
+    [ -f "$registry_file" ] || return 0
+    
+    if command -v jq &> /dev/null; then
+        # Get all claimed files from other streams
+        local claimed_files=$(jq -r --arg exclude "$exclude_stream" \
+            '.coordination.work_streams | to_entries[] |
+             select(.key != $exclude) |
+             .value.files[]' "$registry_file" 2>/dev/null)
+        
+        # Convert new_files comma-separated to array
+        IFS=',' read -ra new_file_arr <<< "$new_files"
+        
+        # Check for overlaps
+        for new_file in "${new_file_arr[@]}"; do
+            new_file=$(echo "$new_file" | xargs)  # trim whitespace
+            
+            while IFS= read -r claimed_file; do
+                # Simple pattern matching (can be enhanced)
+                if [[ "$new_file" == "$claimed_file" ]] || \
+                   [[ "$new_file" == *"$claimed_file"* ]] || \
+                   [[ "$claimed_file" == *"$new_file"* ]]; then
+                    echo "Conflict: $new_file overlaps with claimed file $claimed_file" >&2
+                    return 1
+                fi
+            done <<< "$claimed_files"
+        done
+    fi
+    
+    return 0
+}
+
+# Get owner of a work stream
+# Usage: get_stream_owner <epic_name> <stream_name>
+get_stream_owner() {
+    local epic_name="$1"
+    local stream_name="$2"
+    local registry_file=".claude/epics/${epic_name}/agents.json"
+    
+    [ -f "$registry_file" ] || return 1
+    
+    if command -v jq &> /dev/null; then
+        jq -r --arg stream "$stream_name" \
+            '.coordination.work_streams[$stream].owner // empty' "$registry_file"
+    fi
+}
+
+# List all work streams
+# Usage: list_work_streams <epic_name>
+list_work_streams() {
+    local epic_name="$1"
+    local registry_file=".claude/epics/${epic_name}/agents.json"
+    
+    [ -f "$registry_file" ] || {
+        echo "No work streams registered"
+        return 0
+    }
+    
+    if command -v jq &> /dev/null; then
+        echo "Work Streams:"
+        jq -r '.coordination.work_streams | to_entries[] |
+               "\(.key) - Owner: \(.value.owner) - Status: \(.value.status)"' \
+               "$registry_file" 2>/dev/null || echo "No work streams"
+    fi
+}
+
+# Mark work stream as completed
+# Usage: complete_work_stream <epic_name> <agent_id> <stream_name>
+complete_work_stream() {
+    local epic_name="$1"
+    local agent_id="$2"
+    local stream_name="$3"
+    local registry_file=".claude/epics/${epic_name}/agents.json"
+    
+    if [ ! -f "$registry_file" ]; then
+        return 1
+    fi
+    
+    if command -v jq &> /dev/null; then
+        local temp_file=$(mktemp)
+        jq --arg stream "$stream_name" \
+           '.coordination.work_streams[$stream].status = "completed"' \
+           "$registry_file" > "$temp_file"
+        mv "$temp_file" "$registry_file"
+    fi
+}
+
+# Initialize coordination section if not exists
+# Usage: init_coordination <epic_name>
+init_coordination() {
+    local epic_name="$1"
+    local registry_file=".claude/epics/${epic_name}/agents.json"
+    
+    [ -f "$registry_file" ] || {
+        mkdir -p "$(dirname "$registry_file")"
+        echo '{"agents":{},"coordination":{"work_streams":{}}}' > "$registry_file"
+        return 0
+    }
+    
+    if command -v jq &> /dev/null; then
+        # Add coordination section if missing
+        local has_coordination=$(jq 'has("coordination")' "$registry_file")
+        if [ "$has_coordination" = "false" ]; then
+            local temp_file=$(mktemp)
+            jq '.coordination = {"work_streams": {}}' "$registry_file" > "$temp_file"
+            mv "$temp_file" "$registry_file"
+        fi
+    fi
+}

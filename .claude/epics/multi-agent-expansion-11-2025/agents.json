@@ -11,5 +11,17 @@
       ],
       "commits": 2
     }
+  },
+  "coordination": {
+    "work_streams": {
+      "locking-implementation": {
+        "owner": "agent-6186a4be-58f4-41cf-a0b1-ff617b030d65",
+        "status": "completed",
+        "files": [
+          "ccpm/scripts/lib/locking.sh"
+        ],
+        "started": "2025-11-04T04:54:58Z"
+      }
+    }
   }
 }
