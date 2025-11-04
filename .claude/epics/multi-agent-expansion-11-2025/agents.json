@@ -1,0 +1,15 @@
+{
+  "agents": {
+    "agent-89cc8073-301b-4560-b6b5-d48dada9d820": {
+      "started": "2025-11-04T04:30:45Z",
+      "last_heartbeat": "2025-11-04T04:31:03Z",
+      "status": "active",
+      "work_stream": "agent-registry-implementation",
+      "files_locked": [
+        "ccpm/commands/pm/agents.md",
+        "ccpm/scripts/lib/agent-registry.sh"
+      ],
+      "commits": 2
+    }
+  }
+}
