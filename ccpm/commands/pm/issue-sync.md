@@ -4,7 +4,7 @@ allowed-tools: Bash, Read, Write, LS
 
 # Issue Sync
 
-Push local updates as GitHub issue comments for transparent audit trail.
+Bidirectional sync between local task files and GitHub issues: updates issue body/description and posts progress comments.
 
 ## Usage
 ```
@@ -123,13 +123,63 @@ Create comprehensive update comment:
 *Progress: {completion}% | Synced from local updates at {timestamp}*
 ```
 
-### 5. Post to GitHub
+### 5. Post Progress Comment to GitHub
 Use GitHub CLI to add comment:
 ```bash
-gh issue comment #$ARGUMENTS --body-file {temp_comment_file}
+gh issue comment $ARGUMENTS --body-file {temp_comment_file}
 ```
 
-### 6. Update Local Task File
+### 6. Sync Issue Body/Description
+Update the GitHub issue body with current task file content:
+
+**Read local task file**: `.claude/epics/{epic_name}/$ARGUMENTS.md`
+
+**Format issue body** with structured sections:
+```markdown
+{task_file_body_content}
+
+---
+## 📊 Progress Tracking
+
+**Status**: {status}
+**Completion**: {completion}%
+**Started**: {started_date}
+**Last Updated**: {current_datetime}
+
+### ✅ Completed Acceptance Criteria
+{list_completed_criteria}
+
+### 🔄 In Progress
+{list_in_progress_criteria}
+
+### ⏸️ Pending
+{list_pending_criteria}
+
+---
+*This issue is managed by CCPM. Last synced: {current_datetime}*
+```
+
+**Update GitHub issue**:
+```bash
+# Create temporary file with formatted body
+cat > /tmp/issue_body_$ARGUMENTS.md << 'EOF'
+{formatted_body}
+EOF
+
+# Update the issue body
+gh issue edit $ARGUMENTS --body-file /tmp/issue_body_$ARGUMENTS.md
+
+# Clean up
+rm /tmp/issue_body_$ARGUMENTS.md
+```
+
+**Important**:
+- Preserve the original task description from the local file
+- Append the progress tracking section
+- Don't overwrite manually added GitHub-specific content (if any)
+- Add a marker to indicate CCPM management
+
+### 7. Update Local Task File
 Get current datetime: `date -u +"%Y-%m-%dT%H:%M:%SZ"`
 
 Update the task file frontmatter with sync information:
@@ -143,7 +193,7 @@ github: https://github.com/{org}/{repo}/issues/$ARGUMENTS
 ---
 ```
 
-### 7. Handle Completion
+### 8. Handle Completion
 If task is complete, update all relevant frontmatter:
 
 **Task file frontmatter**:
@@ -179,7 +229,7 @@ github: [existing URL]
 ---
 ```
 
-### 8. Completion Comment
+### 9. Completion Comment
 If task is complete:
 ```markdown
 ## ✅ Task Completed - {current_date}
@@ -208,11 +258,16 @@ This task is ready for review and can be closed.
 *Task completed: 100% | Synced at {timestamp}*
 ```
 
-### 9. Output Summary
+### 10. Output Summary
 ```
 ☁️ Synced updates to GitHub Issue #$ARGUMENTS
 
-📝 Update summary:
+📝 Sync operations:
+   ✅ Issue body updated with current task description
+   ✅ Progress comment posted
+   ✅ Local frontmatter updated
+
+📊 Update summary:
    Progress items: {progress_count}
    Technical notes: {notes_count}
    Commits referenced: {commit_count}
@@ -222,16 +277,19 @@ This task is ready for review and can be closed.
    Epic progress: {epic_progress}%
    Completed criteria: {completed}/{total}
 
-🔗 View update: gh issue view #$ARGUMENTS --comments
+🔗 View on GitHub:
+   Issue: gh issue view $ARGUMENTS
+   Comments: gh issue view $ARGUMENTS --comments
+   Web: https://github.com/{org}/{repo}/issues/$ARGUMENTS
 ```
 
-### 10. Frontmatter Maintenance
+### 11. Frontmatter Maintenance
 - Always update task file frontmatter with current timestamp
 - Track completion percentages in progress files
 - Update epic progress when tasks complete
 - Maintain sync timestamps for audit trail
 
-### 11. Incremental Sync Detection
+### 12. Incremental Sync Detection
 
 **Prevent Duplicate Comments:**
 1. Add sync markers to local files after each sync:
@@ -241,7 +299,7 @@ This task is ready for review and can be closed.
 2. Only sync content added after the last marker
 3. If no new content, skip sync with message: "No updates since last sync"
 
-### 12. Comment Size Management
+### 13. Comment Size Management
 
 **Handle GitHub's Comment Limits:**
 - Max comment size: 65,536 characters
@@ -250,7 +308,7 @@ This task is ready for review and can be closed.
   2. Or summarize with link to full details
   3. Warn user: "⚠️ Update truncated due to size. Full details in local files."
 
-### 13. Error Handling
+### 14. Error Handling
 
 **Common Issues and Recovery:**
 
@@ -272,7 +330,7 @@ This task is ready for review and can be closed.
    - Message: "⚠️ Issue is locked for comments"
    - Solution: "Contact repository admin to unlock"
 
-### 14. Epic Progress Calculation
+### 15. Epic Progress Calculation
 
 When updating epic progress:
 1. Count total tasks in epic directory
@@ -281,7 +339,7 @@ When updating epic progress:
 4. Round to nearest integer
 5. Update epic frontmatter only if percentage changed
 
-### 15. Post-Sync Validation
+### 16. Post-Sync Validation
 
 After successful sync:
 - [ ] Verify comment posted on GitHub

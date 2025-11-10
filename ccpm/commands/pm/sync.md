@@ -32,7 +32,9 @@ For each GitHub issue:
   - If GitHub state newer (updatedAt > local updated), update local
   - If GitHub closed but local open, close local
   - If GitHub reopened but local closed, reopen local
+  - **If GitHub issue body changed, update local task file body (preserve frontmatter)**
 - Update frontmatter to match GitHub state
+- Preserve local-only sections (analysis, implementation details)
 
 ### 3. Push Local to GitHub
 
@@ -41,8 +43,13 @@ For each local task/epic:
 - If no GitHub URL, create new issue (like epic-sync)
 - If local updated > GitHub updatedAt, push changes:
   ```bash
-  gh issue edit {number} --body-file {local_file}
+  # Update issue body with task description
+  gh issue edit {number} --body-file {local_file_without_frontmatter}
+
+  # Add progress comment if there are updates
+  gh issue comment {number} --body "Updated from local changes"
   ```
+- **Sync both issue body and post update comments**
 
 ### 4. Handle Conflicts
 
