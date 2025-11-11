@@ -61,7 +61,79 @@ Do not bother the user with preflight checks progress ("I'm not going to ..."). 
 
 You are synchronizing local development progress to GitHub as issue comments for: **Issue #$ARGUMENTS**
 
-### 1. Gather Local Updates
+### 1. Auto-Detect Completion from Git State
+
+**Before syncing, check if git commits indicate task completion:**
+
+Find the task file:
+```bash
+# Find task file in epics
+task_file=$(find .claude/epics -name "$ARGUMENTS.md" -type f | head -1)
+epic_name=$(dirname "$task_file" | xargs basename)
+task_num="$ARGUMENTS"
+```
+
+Detect status from git commits:
+```bash
+# Count commits for this issue
+commits=$(git log --all --grep="Issue #$task_num:" --grep="Task $task_num:" --oneline 2>/dev/null | wc -l)
+
+# Get last commit info
+last_commit_rel=$(git log --all --grep="Issue #$task_num:" -1 --format="%ar" 2>/dev/null || echo "")
+
+# Check if branch merged
+merged_branch=$(git branch --merged main 2>/dev/null | grep -E "task-$task_num|issue-$task_num" | head -1 | xargs || echo "")
+
+# Read current metadata status
+current_status=$(grep "^status:" "$task_file" | head -1 | sed 's/^status: *//')
+```
+
+Determine git-detected status:
+```bash
+git_status="unknown"
+
+if [ -n "$merged_branch" ]; then
+  git_status="completed"
+  reason="Branch merged to main"
+elif [ "$commits" -gt 0 ] && echo "$last_commit_rel" | grep -qE "week|month|year"; then
+  git_status="completed"
+  reason="$commits commits, last $last_commit_rel"
+elif [ "$commits" -gt 0 ]; then
+  git_status="in-progress"
+  reason="$commits commits, active work"
+fi
+```
+
+**Auto-update if mismatch detected:**
+```bash
+if [ "$current_status" != "$git_status" ] && [ "$git_status" != "unknown" ]; then
+  echo "🔍 Git-detected status: $git_status ($reason)"
+  echo "📝 Updating task status: $current_status → $git_status"
+
+  # Update task frontmatter
+  current_datetime=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+  # Use sed or awk to update status and updated fields
+  sed -i "s/^status: .*/status: $git_status/" "$task_file"
+  sed -i "s/^updated: .*/updated: $current_datetime/" "$task_file"
+
+  # Add git detection metadata if not present
+  if ! grep -q "^git_commits:" "$task_file"; then
+    sed -i "/^updated:/a git_commits: $commits" "$task_file"
+  else
+    sed -i "s/^git_commits: .*/git_commits: $commits/" "$task_file"
+  fi
+
+  echo "✅ Status auto-updated from git state"
+fi
+```
+
+**Why this matters:**
+- Ensures sync reflects actual work completion
+- Eliminates manual status updates
+- Git commits are the source of truth
+
+### 2. Gather Local Updates
 Collect all local updates for the issue:
 - Read from `.claude/epics/{epic_name}/updates/$ARGUMENTS/`
 - Check for new content in:
@@ -70,7 +142,7 @@ Collect all local updates for the issue:
   - `commits.md` - Recent commits and changes
   - Any other update files
 
-### 2. Update Progress Tracking Frontmatter
+### 3. Update Progress Tracking Frontmatter
 Get current datetime: `date -u +"%Y-%m-%dT%H:%M:%SZ"`
 
 Update the progress.md file frontmatter:
@@ -83,13 +155,13 @@ completion: [calculated percentage 0-100%]
 ---
 ```
 
-### 3. Determine What's New
+### 4. Determine What's New
 Compare against previous sync to identify new content:
 - Look for sync timestamp markers
 - Identify new sections or updates
 - Gather only incremental changes since last sync
 
-### 4. Format Update Comment
+### 5. Format Update Comment
 Create comprehensive update comment:
 
 ```markdown
@@ -123,13 +195,13 @@ Create comprehensive update comment:
 *Progress: {completion}% | Synced from local updates at {timestamp}*
 ```
 
-### 5. Post Progress Comment to GitHub
+### 6. Post Progress Comment to GitHub
 Use GitHub CLI to add comment:
 ```bash
 gh issue comment $ARGUMENTS --body-file {temp_comment_file}
 ```
 
-### 6. Sync Issue Body/Description
+### 7. Sync Issue Body/Description
 Update the GitHub issue body with current task file content:
 
 **Read local task file**: `.claude/epics/{epic_name}/$ARGUMENTS.md`
@@ -179,7 +251,7 @@ rm /tmp/issue_body_$ARGUMENTS.md
 - Don't overwrite manually added GitHub-specific content (if any)
 - Add a marker to indicate CCPM management
 
-### 7. Update Local Task File
+### 8. Update Local Task File
 Get current datetime: `date -u +"%Y-%m-%dT%H:%M:%SZ"`
 
 Update the task file frontmatter with sync information:
@@ -193,7 +265,7 @@ github: https://github.com/{org}/{repo}/issues/$ARGUMENTS
 ---
 ```
 
-### 8. Handle Completion
+### 9. Handle Completion
 If task is complete, update all relevant frontmatter:
 
 **Task file frontmatter**:
@@ -229,7 +301,7 @@ github: [existing URL]
 ---
 ```
 
-### 9. Completion Comment
+### 10. Completion Comment
 If task is complete:
 ```markdown
 ## ✅ Task Completed - {current_date}
@@ -258,9 +330,13 @@ This task is ready for review and can be closed.
 *Task completed: 100% | Synced at {timestamp}*
 ```
 
-### 10. Output Summary
+### 11. Output Summary
 ```
 ☁️ Synced updates to GitHub Issue #$ARGUMENTS
+
+🔍 Git-aware detection:
+   {If status was auto-updated, show: "✅ Status auto-updated: open → completed (8 commits)"}
+   {Otherwise: "ℹ️ Status matches git state"}
 
 📝 Sync operations:
    ✅ Issue body updated with current task description
@@ -283,13 +359,13 @@ This task is ready for review and can be closed.
    Web: https://github.com/{org}/{repo}/issues/$ARGUMENTS
 ```
 
-### 11. Frontmatter Maintenance
+### 12. Frontmatter Maintenance
 - Always update task file frontmatter with current timestamp
 - Track completion percentages in progress files
 - Update epic progress when tasks complete
 - Maintain sync timestamps for audit trail
 
-### 12. Incremental Sync Detection
+### 13. Incremental Sync Detection
 
 **Prevent Duplicate Comments:**
 1. Add sync markers to local files after each sync:
@@ -299,7 +375,7 @@ This task is ready for review and can be closed.
 2. Only sync content added after the last marker
 3. If no new content, skip sync with message: "No updates since last sync"
 
-### 13. Comment Size Management
+### 14. Comment Size Management
 
 **Handle GitHub's Comment Limits:**
 - Max comment size: 65,536 characters
@@ -308,7 +384,7 @@ This task is ready for review and can be closed.
   2. Or summarize with link to full details
   3. Warn user: "⚠️ Update truncated due to size. Full details in local files."
 
-### 14. Error Handling
+### 15. Error Handling
 
 **Common Issues and Recovery:**
 
@@ -330,7 +406,7 @@ This task is ready for review and can be closed.
    - Message: "⚠️ Issue is locked for comments"
    - Solution: "Contact repository admin to unlock"
 
-### 15. Epic Progress Calculation
+### 16. Epic Progress Calculation
 
 When updating epic progress:
 1. Count total tasks in epic directory
@@ -339,7 +415,7 @@ When updating epic progress:
 4. Round to nearest integer
 5. Update epic frontmatter only if percentage changed
 
-### 16. Post-Sync Validation
+### 17. Post-Sync Validation
 
 After successful sync:
 - [ ] Verify comment posted on GitHub

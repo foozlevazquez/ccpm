@@ -141,16 +141,32 @@ Task 268: Extract Core Models
 
 ### 3. Auto-Update in `/pm:issue-sync`
 
-When syncing to GitHub, auto-detect completion and prompt to update:
+**✅ IMPLEMENTED** - When syncing to GitHub, auto-detect completion BEFORE posting updates:
 
+The `/pm:issue-sync` command now includes automatic git-aware detection as Step 1:
+
+1. Scans git history for commits mentioning the issue
+2. Determines actual status (completed/in-progress/open)
+3. **Automatically updates task metadata if mismatch found**
+4. Then proceeds with normal sync to GitHub
+
+**No user prompt needed** - status is auto-corrected before sync.
+
+Example:
 ```bash
-# Before syncing
-if task_completed_in_git && metadata_says_open; then
-  echo "⚠️ Task appears complete in git but metadata says 'open'"
-  echo "Update task status to 'completed'? (y/n)"
-  # ... update if yes ...
-fi
+/pm:issue-sync 268
+
+# Output:
+🔍 Git-detected status: completed (8 commits, last 2 hours ago)
+📝 Updating task status: open → completed
+✅ Status auto-updated from git state
+
+☁️ Syncing to GitHub...
+✅ Issue body updated
+✅ Progress comment posted
 ```
+
+**Benefit**: Just run `/pm:issue-sync` and the system handles status detection automatically.
 
 ## Benefits
 
@@ -162,20 +178,20 @@ fi
 
 ## Implementation Phases
 
-### Phase 1: Detection (Read-Only)
-- Implement commit scanning
-- Add git-aware status to `/pm:epic-status`
-- Show mismatches as warnings
+### Phase 1: Detection (Read-Only) ✅ COMPLETE
+- ✅ Implement commit scanning
+- ✅ Add git-aware status to `/pm:epic-status`
+- ✅ Show mismatches as warnings
 
-### Phase 2: Auto-Update (Interactive)
-- Create `/pm:detect-completion` command
-- Prompt before updating metadata
-- Update frontmatter based on git state
+### Phase 2: Auto-Update (Interactive) ✅ COMPLETE
+- ✅ Create `/pm:detect-completion` command
+- ✅ Prompt before updating metadata
+- ✅ Update frontmatter based on git state
 
-### Phase 3: Full Automation
-- Auto-detect on every status check
-- Auto-update when confidence is high
-- Hook into CI/CD for continuous sync
+### Phase 3: Full Automation ✅ COMPLETE
+- ✅ Auto-detect in `/pm:issue-sync` (no prompt needed)
+- ✅ Auto-update when confidence is high
+- ⏳ Hook into CI/CD for continuous sync (future)
 
 ## Technical Details
 
