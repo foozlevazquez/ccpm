@@ -106,6 +106,8 @@ fi
 
 **Auto-update if mismatch detected:**
 ```bash
+detected_as_complete=false
+
 if [ "$current_status" != "$git_status" ] && [ "$git_status" != "unknown" ]; then
   echo "🔍 Git-detected status: $git_status ($reason)"
   echo "📝 Updating task status: $current_status → $git_status"
@@ -125,6 +127,17 @@ if [ "$current_status" != "$git_status" ] && [ "$git_status" != "unknown" ]; the
   fi
 
   echo "✅ Status auto-updated from git state"
+
+  # Track if we detected completion
+  if [ "$git_status" = "completed" ]; then
+    detected_as_complete=true
+  fi
+fi
+
+# Also check if status is already completed (not just auto-detected)
+current_status_now=$(grep "^status:" "$task_file" | head -1 | sed 's/^status: *//')
+if [ "$current_status_now" = "completed" ] || [ "$current_status_now" = "closed" ]; then
+  detected_as_complete=true
 fi
 ```
 
@@ -251,7 +264,59 @@ rm /tmp/issue_body_$ARGUMENTS.md
 - Don't overwrite manually added GitHub-specific content (if any)
 - Add a marker to indicate CCPM management
 
-### 8. Update Local Task File
+### 8. Close GitHub Issue if Complete
+
+**If task detected as completed, close the issue on GitHub:**
+
+```bash
+if [ "$detected_as_complete" = true ]; then
+  # Check current GitHub issue state
+  gh_state=$(gh issue view $ARGUMENTS --json state --jq '.state' 2>/dev/null || echo "unknown")
+
+  if [ "$gh_state" = "OPEN" ]; then
+    echo ""
+    echo "🔒 Closing GitHub issue (task completed)"
+
+    # Add completion comment before closing
+    cat > /tmp/issue_close_comment_$ARGUMENTS.md << 'EOF'
+## ✅ Task Completed
+
+This task has been automatically detected as completed based on git commits.
+
+**Completion detected from:**
+- Commits: {commit count}
+- Last activity: {last commit time}
+- Status: completed
+
+The issue is now being closed automatically.
+
+---
+*Auto-closed by CCPM git-aware detection*
+EOF
+
+    # Post completion comment
+    gh issue comment $ARGUMENTS --body-file /tmp/issue_close_comment_$ARGUMENTS.md
+
+    # Close the issue
+    gh issue close $ARGUMENTS --reason completed
+
+    echo "✅ GitHub issue #$ARGUMENTS closed"
+
+    # Clean up
+    rm /tmp/issue_close_comment_$ARGUMENTS.md
+  else
+    echo "ℹ️  GitHub issue already closed"
+  fi
+fi
+```
+
+**Why close automatically:**
+- Task is completed (verified by git commits)
+- Status updated to "completed" in local metadata
+- No reason to keep GitHub issue open
+- Maintains consistency between local state and GitHub state
+
+### 9. Update Local Task File
 Get current datetime: `date -u +"%Y-%m-%dT%H:%M:%SZ"`
 
 Update the task file frontmatter with sync information:
@@ -265,7 +330,7 @@ github: https://github.com/{org}/{repo}/issues/$ARGUMENTS
 ---
 ```
 
-### 9. Handle Completion
+### 10. Handle Completion
 If task is complete, update all relevant frontmatter:
 
 **Task file frontmatter**:
@@ -301,7 +366,7 @@ github: [existing URL]
 ---
 ```
 
-### 10. Completion Comment
+### 11. Completion Comment
 If task is complete:
 ```markdown
 ## ✅ Task Completed - {current_date}
@@ -330,7 +395,7 @@ This task is ready for review and can be closed.
 *Task completed: 100% | Synced at {timestamp}*
 ```
 
-### 11. Output Summary
+### 12. Output Summary
 ```
 ☁️ Synced updates to GitHub Issue #$ARGUMENTS
 
@@ -342,6 +407,8 @@ This task is ready for review and can be closed.
    ✅ Issue body updated with current task description
    ✅ Progress comment posted
    ✅ Local frontmatter updated
+   {If closed: "✅ GitHub issue closed automatically"}
+   {Otherwise: "ℹ️ Issue remains open (work in progress)"}
 
 📊 Update summary:
    Progress items: {progress_count}
@@ -359,13 +426,13 @@ This task is ready for review and can be closed.
    Web: https://github.com/{org}/{repo}/issues/$ARGUMENTS
 ```
 
-### 12. Frontmatter Maintenance
+### 13. Frontmatter Maintenance
 - Always update task file frontmatter with current timestamp
 - Track completion percentages in progress files
 - Update epic progress when tasks complete
 - Maintain sync timestamps for audit trail
 
-### 13. Incremental Sync Detection
+### 14. Incremental Sync Detection
 
 **Prevent Duplicate Comments:**
 1. Add sync markers to local files after each sync:
@@ -375,7 +442,7 @@ This task is ready for review and can be closed.
 2. Only sync content added after the last marker
 3. If no new content, skip sync with message: "No updates since last sync"
 
-### 14. Comment Size Management
+### 15. Comment Size Management
 
 **Handle GitHub's Comment Limits:**
 - Max comment size: 65,536 characters
@@ -384,7 +451,7 @@ This task is ready for review and can be closed.
   2. Or summarize with link to full details
   3. Warn user: "⚠️ Update truncated due to size. Full details in local files."
 
-### 15. Error Handling
+### 16. Error Handling
 
 **Common Issues and Recovery:**
 
@@ -406,7 +473,7 @@ This task is ready for review and can be closed.
    - Message: "⚠️ Issue is locked for comments"
    - Solution: "Contact repository admin to unlock"
 
-### 16. Epic Progress Calculation
+### 17. Epic Progress Calculation
 
 When updating epic progress:
 1. Count total tasks in epic directory
@@ -415,7 +482,7 @@ When updating epic progress:
 4. Round to nearest integer
 5. Update epic frontmatter only if percentage changed
 
-### 17. Post-Sync Validation
+### 18. Post-Sync Validation
 
 After successful sync:
 - [ ] Verify comment posted on GitHub

@@ -164,17 +164,25 @@ Example:
 ☁️ Syncing to GitHub...
 ✅ Issue body updated
 ✅ Progress comment posted
+🔒 Closing GitHub issue (task completed)
+✅ GitHub issue #268 closed
 ```
 
-**Benefit**: Just run `/pm:issue-sync` and the system handles status detection automatically.
+**Benefit**: Just run `/pm:issue-sync` and the system:
+1. Auto-detects completion from git commits
+2. Updates local task status
+3. Syncs progress to GitHub
+4. **Automatically closes the issue** if completed
 
 ## Benefits
 
 1. **Automatic Status Tracking** - No manual metadata updates needed
-2. **Accurate Epic Progress** - Reflects actual work done, not stale metadata
-3. **Developer Experience** - Focus on coding, not bookkeeping
-4. **Audit Trail** - Git commits provide verifiable completion proof
-5. **Worktree-Aware** - Detects work in any worktree/branch
+2. **Auto-Close on GitHub** - Issues automatically closed when work is complete
+3. **Accurate Epic Progress** - Reflects actual work done, not stale metadata
+4. **Developer Experience** - Focus on coding, not bookkeeping
+5. **Audit Trail** - Git commits provide verifiable completion proof
+6. **Worktree-Aware** - Detects work in any worktree/branch
+7. **Full Automation** - One command does it all: detect, update, sync, close
 
 ## Implementation Phases
 
